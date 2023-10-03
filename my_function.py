@@ -1,26 +1,63 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[ ]:
-
-
+# ライブラリ
+## 基本
 import numpy as np
 import matplotlib.pyplot as plt
+## 分解
+import scipy.stats
+from statsmodels.tsa.seasonal import STL
+from sklearn.model_selection import train_test_split
 
+# 分解
+def bunkai(df, window_size=5):
+    ## 不要そうなら消してOK
+    # 正規化
+    raw_array = scipy.stats.zscore(df)
 
-# In[ ]:
+    ## STL分解
+    stl=STL(raw_array, period=12, robust=True)
+    stl_series = stl.fit()
 
+    ## STL分解結果のグラフ化
+    plt.rcParams['figure.figsize'] = [12, 9]
+    stl_series.plot()
+    plt.show()
 
+    ## データの整形
+    ### default : SlideingWindow = 5
+    raw_x, raw_y = sliding_window(raw_array, window_size=window_size)
+    trend_x, trend_y = sliding_window(stl_series.trend, window_size=window_size)
+    seasonal_x, seasonal_y = sliding_window(stl_series.seasonal, window_size=window_size)
+    resid_x, resid_y = sliding_window(stl_series.resid, window_size=window_size)
+
+    ## データの分割
+    raw_x_train, raw_x_test, raw_y_train, raw_y_test = train_test_split(raw_x, raw_y, test_size=0.1, shuffle=False)
+    trend_x_train, trend_x_test, trend_y_train, trend_y_test = train_test_split(trend_x, trend_y, test_size=0.1, shuffle=False)
+    seasonal_x_train, seasonal_x_test, seasonal_y_train, seasonal_y_test = train_test_split(seasonal_x, seasonal_y, test_size=0.1, shuffle=False)
+    resid_x_train, resid_x_test, resid_y_train, resid_y_test = train_test_split(resid_x, resid_y, test_size=0.1, shuffle=False)
+    
+    return [raw_x_train, raw_x_test, raw_y_train, raw_y_test], [trend_x_train, trend_x_test, trend_y_train, trend_y_test], [seasonal_x_train, seasonal_x_test, seasonal_y_train, seasonal_y_test], [resid_x_train, resid_x_test, resid_y_train, resid_y_test]
+
+def sliding_window(target_raw, window_size=5):
+    """
+    スライディングウィンドウ。
+
+    """
+    
+    X, Y = [], []
+    for i in range(len(target_raw)-window_size):
+        X.append(target_raw[i:i + window_size])
+        Y.append(target_raw[i + window_size])
+    X = np.array(X)
+    Y = np.array(Y)
+    return X, Y
+
+# 評価
 def mean_squared_error(y_true, y_pred):
     """
     MSEを計算する
 
     """
     return np.mean((y_true - y_pred) ** 2)
-
-
-# In[ ]:
-
 
 def calc_kld(generated_data, ground_truth, bins=20):
     """
@@ -53,210 +90,3 @@ def calc_kld(generated_data, ground_truth, bins=20):
             kld += x1 * np.log(x1 / x2)
 
     return np.abs(kld)
-
-
-# In[ ]:
-
-
-def search_best_split(X, y, eval_type):
-    """
-    最適な分割点を探す。
-
-    Parameters
-    ----------
-    X : np.array
-        説明変数の配列。多変量を想定。
-    y : np.array
-        目的変数の配列。
-    eval_type : string
-        分割基準の指標。
-    """
-    _eveluations = []
-    best_evaluation = 10**8
-    num_df_column = X.shape[1]
-    num_df_row = X.shape[0]
-
-    #特徴量の数だけループ
-    for feature_index in range(num_df_column):
-        thresholds, values = zip(*sorted(zip(X[:, feature_index], y)))
-
-        # 予測対象数だけループ
-        for i in range(1, num_df_row):
-            tentative_thresholds = thresholds[i - 1]
-            left_node = values[0:i]
-            right_node = values[i:]
-            left_pred = np.full(len(left_node), np.mean(left_node))
-            right_pred = np.full(len(right_node), np.mean(right_node))
-
-            if(eval_type == "MSE"):
-                evaluation = mean_squared_error(left_pred, left_node) + mean_squared_error(right_pred, right_node)
-                _eveluations.append(evaluation)
-
-                if best_evaluation > evaluation:
-                    best_evaluation = evaluation
-                    best_feature_index = feature_index
-                    best_threshold = tentative_thresholds
-
-            elif(eval_type == "KLD_sum"):
-                evaluation = calc_kld(left_pred, left_node) + calc_kld(right_pred, right_node)
-                _eveluations.append(evaluation)
-
-                if best_evaluation > evaluation:
-                    best_evaluation = evaluation
-                    best_feature_index = feature_index
-                    best_threshold = tentative_thresholds
-
-            elif(eval_type == "KLD_def"):
-                evaluation = abs(calc_kld(left_pred, left_node) - calc_kld(right_pred, right_node))
-                _eveluations.append(evaluation)
-
-                if best_evaluation > evaluation:
-                    best_evaluation = evaluation
-                    best_feature_index = feature_index
-                    best_threshold = tentative_thresholds
-
-            else:
-                break
-        
-    return [best_evaluation, best_feature_index, best_threshold]
-
-
-# In[ ]:
-
-
-def make_wave(A, f, sec, sf):
-    """
-    sin波を作成する。
-
-    Parameters
-    ----------
-    A : float
-        振幅
-    f : float
-        周波数
-    sec : float
-        信号の長さ
-    sf : float
-        信号の長さ
-    """
-    
-    wave_t = np.arange(0, sec, 1/sf) #サンプリング点の生成
-    wave_y = A*np.sin(2*np.pi*f*wave_t) #正弦波の生成
-    
-    return wave_t, wave_y
-
-
-# In[ ]:
-
-
-def sliding_window(target_raw, window_size=5):
-    """
-    スライディングウィンドウ。
-
-    """
-    
-    X, Y = [], []
-    for i in range(len(target_raw)-window_size):
-        X.append(target_raw[i:i + window_size])
-        Y.append(target_raw[i + window_size])
-    X = np.array(X)
-    Y = np.array(Y)
-    return X, Y
-
-
-# In[ ]:
-
-
-def best_split_fixed_depth(X, y, eval_type, feature_index, min_samples_leaf):
-    """
-    深さ固定で最適な分割点を探す。
-
-    Parameters
-    ----------
-    X : np.array
-        説明変数の配列。多変量を想定。
-    y : np.array
-        目的変数の配列。
-    eval_type : string
-        分割基準の指標。
-    """
-    best_evaluation = 10**8
-    num_df_row = X.shape[0]
-
-    thresholds, values = zip(*sorted(zip(X[:, feature_index], y)))
-
-    # 予測対象数だけループ
-    for i in range(1, num_df_row):
-        tentative_thresholds = thresholds[i - 1]
-        left_node = values[0:i]
-        right_node = values[i:]
-        left_pred = np.full(len(left_node), np.mean(left_node))
-        right_pred = np.full(len(right_node), np.mean(right_node))
-
-        if(eval_type == "MSE"):
-            evaluation = mean_squared_error(left_pred, left_node) + mean_squared_error(right_pred, right_node)
-
-            if best_evaluation > evaluation and left_pred.shape[0] > min_samples_leaf and right_pred.shape[0] > min_samples_leaf:
-                best_evaluation = evaluation
-                best_feature_index = feature_index
-                best_threshold = tentative_thresholds
-
-        elif(eval_type == "KLD_sum"):
-            evaluation = calc_kld(left_pred, left_node) + calc_kld(right_pred, right_node)
-
-            if best_evaluation > evaluation and left_pred.shape[0] > min_samples_leaf and right_pred.shape[0] > min_samples_leaf:
-                best_evaluation = evaluation
-                best_feature_index = feature_index
-                best_threshold = tentative_thresholds
-
-        elif(eval_type == "KLD_def"):
-            evaluation = abs(calc_kld(left_pred, left_node) - calc_kld(right_pred, right_node))
-
-            if best_evaluation > evaluation and left_pred.shape[0] > min_samples_leaf and right_pred.shape[0] > min_samples_leaf:
-                best_evaluation = evaluation
-                best_feature_index = feature_index
-                best_threshold = tentative_thresholds
-
-        else:
-            break
-    
-    return [best_evaluation, best_feature_index, best_threshold]
-
-
-# In[ ]:
-
-
-# ノードのカウント
-def count_node(max_depth):
-    """
-    深さに応じた総ノード数を計算する
-
-    """
-    node_num = 1
-    depth_node_array = []
-    
-    for i in range(max_depth):
-        if i == 0:
-            depth_node_array = [0]
-        else:
-            pre_num = node_num
-            node_num = node_num + 2**i
-            depth_node_array = list(range(pre_num, node_num))
-    
-    return [node_num, depth_node_array]
-
-
-# In[ ]:
-
-
-# スライディングウィンドウ
-def sliding_window(target_raw):
-    X, Y = [], []
-    window_size = 5
-    for i in range(len(target_raw)-window_size):
-        X.append(target_raw[i:i + window_size])
-        Y.append(target_raw[i + window_size])
-    X = np.array(X)
-    Y = np.array(Y)
-    return X, Y
-
